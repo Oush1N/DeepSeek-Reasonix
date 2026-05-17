@@ -75,6 +75,26 @@ fn resolve_cli(app: &AppHandle) -> Result<(String, Vec<String>)> {
     }
     let _ = app;
 
+    // Exe-adjacent fallback: when running from target/release/ (not bundled
+    // via MSI), resource_dir() can fail, but the exe directory may have a
+    // sidecar dist/ and node.exe placed there by the build or manual copy.
+    if let Ok(exe_path) = env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            let sidecar_node = exe_dir.join(if cfg!(windows) { "node.exe" } else { "node" });
+            let sidecar_cli = exe_dir.join("dist").join("cli").join("index.js");
+            let is_real_node = sidecar_node
+                .metadata()
+                .map(|m| m.len() > 1_000_000)
+                .unwrap_or(false);
+            if is_real_node && sidecar_cli.exists() {
+                return Ok((
+                    sidecar_node.to_string_lossy().into_owned(),
+                    vec![sidecar_cli.to_string_lossy().into_owned(), "desktop".to_string()],
+                ));
+            }
+        }
+    }
+
     // Dev path: system Node + repo dist (cargo run / cargo tauri dev).
     let cwd = env::current_dir().context("cwd")?;
     let candidates = [
